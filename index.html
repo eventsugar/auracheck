@@ -432,24 +432,40 @@ function generateTickets(){
 const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycby-GWIueVdm_wBJaKmeatAaN2ksFzRVJnHbZLAFYMXge4NBwkBtLkSGsJ4hX4VBsLa8/exec';
 let syncEnabled = true;
 
+// Use fetch with redirect follow — works with Apps Script
+function sheetFetch(params) {
+  return fetch(`${SCRIPT_URL}?${params}`, {
+    method: 'GET',
+    redirect: 'follow',
+    mode: 'cors',
+  })
+  .then(r => r.json())
+  .catch(() => null);
+}
+
 async function sheetCheck(id){
-  try{
-    const res = await fetch(`${SCRIPT_URL}?action=check&id=${encodeURIComponent(id)}`);
-    return await res.json();
-  } catch(e){ return null; }
+  try{ return await sheetFetch(`action=check&id=${encodeURIComponent(id)}`); }
+  catch(e){ return null; }
 }
 
 async function sheetScan(id, time){
-  try{
-    const res = await fetch(`${SCRIPT_URL}?action=scan&id=${encodeURIComponent(id)}&time=${encodeURIComponent(time)}`);
-    return await res.json();
-  } catch(e){ return null; }
+  try{ return await sheetFetch(`action=scan&id=${encodeURIComponent(id)}&time=${encodeURIComponent(time)}`); }
+  catch(e){ return null; }
 }
 
 async function sheetStats(){
+  try{ return await sheetFetch('action=stats'); }
+  catch(e){ return null; }
+}
+
+async function sheetGetRSVPs(){
+  try{ return await sheetFetch('action=getRSVPs'); }
+  catch(e){ return null; }
+}
+
+async function sheetVerifyRSVP(bookingId, assignedId, status, notes){
   try{
-    const res = await fetch(`${SCRIPT_URL}?action=stats`);
-    return await res.json();
+    return await sheetFetch(`action=verifyRSVP&bookingId=${encodeURIComponent(bookingId)}&assignedId=${encodeURIComponent(assignedId)}&status=${encodeURIComponent(status)}&notes=${encodeURIComponent(notes)}`);
   } catch(e){ return null; }
 }
 
@@ -859,9 +875,8 @@ async function loadPendingRSVPs(){
   const el=document.getElementById('rsvp-list'); if(!el) return;
   el.innerHTML='<div class="empty-state">⏳ Loading from Google Sheets...</div>';
   try{
-    const res=await fetch(`${SCRIPT_URL}?action=getRSVPs`);
-    const data=await res.json();
-    if(data.error){el.innerHTML=`<div class="empty-state">Error: ${data.error}</div>`;return;}
+    const data=await sheetGetRSVPs();
+    if(!data||data.error){el.innerHTML=`<div class="empty-state">Error loading RSVPs. Try refreshing.</div>`;return;}
     allRSVPs=data.rsvps||[]; filteredRSVPs=[...allRSVPs];
     updateVerifyStats(); renderRSVPList(filteredRSVPs);
   }catch(e){el.innerHTML='<div class="empty-state">Could not connect. Check your internet connection.</div>';}
@@ -944,10 +959,7 @@ async function approveRSVP(idx){
     const t=tickets.find(x=>x.id===assignedId);
     if(t){t.buyer=r.name;t.phone=r.phone;t.paid=true;save();}
   }
-  try{
-    const params=new URLSearchParams({action:'verifyRSVP',bookingId:r.id,assignedId,status:'Paid',notes:notes||'Approved by admin'});
-    await fetch(`${SCRIPT_URL}?${params.toString()}`);
-  }catch(e){}
+  await sheetVerifyRSVP(r.id, assignedId, 'Paid', notes||'Approved by admin');
   r.status='approved'; r.assignedId=assignedId; r.notes=notes||'Approved by admin';
   updateVerifyStats(); renderRSVPList(filteredRSVPs);
   closeModal('modal-verify');
@@ -958,10 +970,7 @@ async function approveRSVP(idx){
 async function rejectRSVP(idx){
   const r=filteredRSVPs[idx]; if(!r) return;
   if(!confirm(`Reject RSVP from ${r.name}?`)) return;
-  try{
-    const params=new URLSearchParams({action:'verifyRSVP',bookingId:r.id,assignedId:r.id,status:'Rejected',notes:'Rejected by admin'});
-    await fetch(`${SCRIPT_URL}?${params.toString()}`);
-  }catch(e){}
+  await sheetVerifyRSVP(r.id, r.id, 'Rejected', 'Rejected by admin');
   r.status='rejected'; updateVerifyStats(); renderRSVPList(filteredRSVPs);
   showToast('RSVP rejected','error');
 }
